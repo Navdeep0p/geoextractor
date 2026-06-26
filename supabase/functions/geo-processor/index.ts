@@ -89,6 +89,10 @@ If you cannot determine an exact location, provide your best guess for country a
                         role: "user",
                         content: [
                             {
+                                type: "text",
+                                text: "Analyze this image and return the estimated geographical coordinates matching our required JSON formatting rules exactly."
+                            },
+                            {
                                 type: "image_url",
                                 image_url: {
                                     url: base64Image
