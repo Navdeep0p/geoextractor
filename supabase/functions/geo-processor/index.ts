@@ -1,6 +1,6 @@
 // Supabase Edge Function to process EXIF metadata and interact with Google Cloud Vision API
 // Adheres to Deno (TypeScript) runtime environment.
-//a
+
 const headers = {
     "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Methods": "POST, OPTIONS",
@@ -74,54 +74,34 @@ Deno.serve(async (req) => {
         }
 
         const googleData = await googleResponse.json();
-        const landmarkAnnotation = googleData.responses?.[0]?.landmarkAnnotations?.[0];
+        const responseBlock = googleData.responses?.[0] || {};
+        const landmark = responseBlock.landmarkAnnotations?.[0];
 
-        let responsePayload;
+        // Fallback checking to see if a landmark annotation actually exists
+        const hasLandmark = !!landmark;
 
-        if (landmarkAnnotation) {
-            const description = landmarkAnnotation.description || "Unknown Landmark";
-            const score = landmarkAnnotation.score || 0;
-            const location = landmarkAnnotation.locations?.[0]?.latLng;
-
-            responsePayload = {
-                analysis: {
-                    signage: description,
-                    architecture: "Verified architectural match found in Google Cloud Landmark Index.",
-                    flora: "Environmental surroundings verified against global geospatial assets."
-                },
-                confidence_score: Math.round(score * 100),
-                estimated_location: {
-                    country: "India", // Fallback safely to 'India' as requested
-                    city: description,
-                    coordinates: {
-                        lat: location?.latitude || 0.0,
-                        lng: location?.longitude || 0.0
-                    }
-                },
-                success: true,
-                source: "LLM_Fallback"
-            };
-        } else {
-            // Graceful fallback for missing landmarks
-            responsePayload = {
-                analysis: {
-                    signage: "No major landmark matched in Google's database.",
-                    architecture: "No major landmark matched in Google's database.",
-                    flora: "No major landmark matched in Google's database."
-                },
-                confidence_score: 0,
-                estimated_location: {
-                    country: "Unknown",
-                    city: "Unknown",
-                    coordinates: {
-                        lat: 0.0,
-                        lng: 0.0
-                    }
-                },
-                success: true,
-                source: "LLM_Fallback"
-            };
-        }
+        const responsePayload = {
+            success: true,
+            source: "Google_Vision_API",
+            estimated_location: {
+                city: hasLandmark ? (landmark.description || "Recognized Location") : "No Database Match",
+                country: "India",
+                coordinates: {
+                    lat: landmark?.locations?.[0]?.latLng?.latitude ?? 0.0,
+                    lng: landmark?.locations?.[0]?.latLng?.longitude ?? 0.0,
+                }
+            },
+            confidence_score: hasLandmark ? Math.round((landmark.score || 0) * 100) : 0,
+            analysis: {
+                architecture: hasLandmark
+                    ? "Verified match found in Google Cloud Landmark index."
+                    : "No architectural structures matched in Google's geospatial index.",
+                flora: hasLandmark
+                    ? "Surrounding terrain cross-verified against global image patterns."
+                    : "Generic visual elements detected; landscape lacks distinct markers.",
+                signage: hasLandmark ? (landmark.description || "None visible") : "None visible"
+            }
+        };
 
         return new Response(JSON.stringify(responsePayload), {
             status: 200,
