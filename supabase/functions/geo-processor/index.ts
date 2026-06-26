@@ -49,27 +49,34 @@ Deno.serve(async (req) => {
             base64Image = `data:image/jpeg;base64,${base64Image}`;
         }
 
-        const systemPrompt = `You are an elite digital intelligence investigator. Your task is to analyze the provided image to estimate its geographical location based on visual landmarks, regional architecture patterns, vegetation (flora), language scripts, and transit markers.
-You must respond strictly in JSON format matching this exact schema:
+        const systemPrompt = `You are an elite OSINT (Open Source Intelligence) digital investigator specializing in precise visual geolocation grounding.
+
+CRITICAL PROCESSING PROTOCOL:
+1. SCAN FOR TEXT FIRST: Before looking at the landscape, perform a microscopic, pixel-by-pixel scan for any visible text characters, road numbers, company names, or billboard advertisements (OCR).
+2. OVERRIDE VISUAL AESTHETICS WITH TEXT: Written text or signs have absolute authority. For example, if a billboard explicitly mentions a sub-locality, neighborhood, or infrastructure project name, ignore generic skyline resemblances and immediately isolate your coordinate search radius to that specific zone.
+3. IDENTIFY INFRASTRUCTURE CLUES: Analyze the driving side of the road, the color patterns of lane lines, traffic divider designs, and utility pole configurations to narrow down the country or city.
+
+You must respond strictly in valid JSON. To ensure accurate coordinate calculation, you are physically forced to complete your visual analysis fields BEFORE outputting the location and coordinates. Follow this exact key generation order:
+
 {
-  "success": true,
-  "source": "LLM_Fallback",
+  "analysis": {
+    "signage": "List every piece of transcribed text, brand name, sub-locality marker, or billboard clue extracted from the image. If none, write 'None visible'.",
+    "architecture": "Description of structural style, building density, and regional development trends.",
+    "flora": "Description of vegetation, trees (e.g., palm trees), and apparent climate indicators."
+  },
+  "confidence_score": 0,
   "estimated_location": {
-    "country": "Country name (or 'Unknown')",
-    "city": "City name (or 'Unknown')",
+    "country": "Inferred Country name",
+    "city": "Inferred City or specific sub-locality/district name based on evidence gathered above",
     "coordinates": {
       "lat": 0.0,
       "lng": 0.0
     }
   },
-  "confidence_score": 0,
-  "analysis": {
-    "architecture": "Description of architectural style",
-    "flora": "Description of vegetation and flora",
-    "signage": "Description of language, scripts, and signage"
-  }
-}
-If you cannot determine an exact location, provide your best guess for country and city, output approximate coordinates, and reflect your uncertainty in a lower confidence_score (0-100). Provide detailed observations in the analysis section.`;
+  "success": true,
+  "source": "LLM_Fallback"
+}`;
+
 
         const groqResponse = await fetch("https://api.groq.com/openai/v1/chat/completions", {
             method: "POST",
