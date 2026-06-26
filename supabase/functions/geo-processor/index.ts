@@ -7,6 +7,18 @@ const headers = {
     "Access-Control-Allow-Headers": "Content-Type, Authorization, x-client-info, apikey",
 };
 
+
+async function fetchWithRetry(url: string, options: RequestInit, retries = 3, delay = 1500) {
+  for (let i = 0; i < retries; i++) {
+    const response = await fetch(url, options);
+    if (response.status !== 503 || i === retries - 1) {
+      return response;
+    }
+    console.warn(`Gemini busy (503). Retrying attempt ${i + 1} of ${retries}...`);
+    await new Promise(res => setTimeout(res, delay));
+  }
+}
+
 Deno.serve(async (req) => {
     // Handle CORS preflight request
     if (req.method === "OPTIONS") {
@@ -69,7 +81,7 @@ Deno.serve(async (req) => {
   "source": "Gemini_Vision_API"
 }`;
 
-        const geminiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${geminiApiKey}`, {
+        const geminiResponse = await fetchWithRetry(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiApiKey}`, {
             method: "POST",
             headers: {
                 "Content-Type": "application/json"
@@ -87,8 +99,8 @@ Deno.serve(async (req) => {
             })
         });
 
-        if (!geminiResponse.ok) {
-            const errorData = await geminiResponse.text();
+        if (!geminiResponse || !geminiResponse.ok) {
+            const errorData = geminiResponse ? await geminiResponse.text() : "No response after retries";
             console.error("Gemini API Error:", errorData);
             return new Response(JSON.stringify({ error: "Failed to process image via Gemini API." }), {
                 status: 502,
