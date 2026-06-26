@@ -1,6 +1,6 @@
 // Supabase Edge Function to process EXIF metadata and interact with Google Cloud Vision API
 // Adheres to Deno (TypeScript) runtime environment.
-//a
+// test trigger
 const headers = {
     "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Methods": "POST, OPTIONS",
