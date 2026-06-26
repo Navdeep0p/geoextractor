@@ -1,6 +1,6 @@
-// Supabase Edge Function to process EXIF metadata and interact with Google Cloud Vision API
+// Supabase Edge Function to process EXIF metadata and interact with Google AI Studio Gemini API
 // Adheres to Deno (TypeScript) runtime environment.
-// test trigger
+
 const headers = {
     "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Methods": "POST, OPTIONS",
@@ -24,9 +24,9 @@ Deno.serve(async (req) => {
     }
 
     try {
-        const googleApiKey = Deno.env.get("GOOGLE_CLOUD_VISION_API_KEY");
-        if (!googleApiKey) {
-            return new Response(JSON.stringify({ error: "Server Configuration Error: Missing GOOGLE_CLOUD_VISION_API_KEY" }), {
+        const geminiApiKey = Deno.env.get("GEMINI_API_KEY");
+        if (!geminiApiKey) {
+            return new Response(JSON.stringify({ error: "Server Configuration Error: Missing GEMINI_API_KEY" }), {
                 status: 500,
                 headers: { ...headers, "Content-Type": "application/json" },
             });
@@ -43,85 +43,89 @@ Deno.serve(async (req) => {
         }
 
         let base64Image = body.image.trim();
-        // Remove data URI prefix if it exists as Google Cloud Vision expects raw base64 bytes
-        const prefixMatch = base64Image.match(/^data:image\/[a-zA-Z+]+;base64,/);
+        let mimeType = "image/jpeg"; // Default fallback
+
+        // Remove data URI prefix if it exists and extract mime type dynamically
+        const prefixMatch = base64Image.match(/^data:(image\/[a-zA-Z+]+);base64,/);
         if (prefixMatch) {
+            mimeType = prefixMatch[1];
             base64Image = base64Image.replace(prefixMatch[0], "");
         }
 
-        const googleResponse = await fetch(`https://vision.googleapis.com/v1/images:annotate?key=${googleApiKey}`, {
+        const systemPrompt = `You are an elite OSINT geographical location grounder. Analyze this image. If it features a prominent landmark, bridge, or building, use surrounding elements (like vegetation, landscape style, water type) to isolate its true town/city. Return your final answer strictly in valid JSON matching this schema configuration layout:
+{
+  "analysis": {
+    "architecture": "Engineering style notes",
+    "flora": "Vegetation notes",
+    "signage": "Text or billboard readings extracted"
+  },
+  "confidence_score": 90,
+  "estimated_location": {
+    "country": "Country name",
+    "city": "Specific City or neighborhood zone",
+    "coordinates": { "lat": 0.0, "lng": 0.0 }
+  },
+  "success": true,
+  "source": "Gemini_Vision_API"
+}`;
+
+        const geminiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiApiKey}`, {
             method: "POST",
             headers: {
                 "Content-Type": "application/json"
             },
             body: JSON.stringify({
-                requests: [
-                    {
-                        image: { content: base64Image },
-                        features: [{ type: "LANDMARK_DETECTION", maxResults: 1 }]
-                    }
-                ]
+                contents: [{
+                    parts: [
+                        { text: systemPrompt },
+                        { inlineData: { mimeType: mimeType, data: base64Image } }
+                    ]
+                }],
+                generationConfig: {
+                    responseMimeType: "application/json"
+                }
             })
         });
 
-        if (!googleResponse.ok) {
-            const errorData = await googleResponse.text();
-            console.error("Google Cloud Vision API Error:", errorData);
-            return new Response(JSON.stringify({ error: "Failed to process image via Google Vision API." }), {
+        if (!geminiResponse.ok) {
+            const errorData = await geminiResponse.text();
+            console.error("Gemini API Error:", errorData);
+            return new Response(JSON.stringify({ error: "Failed to process image via Gemini API." }), {
                 status: 502,
                 headers: { ...headers, "Content-Type": "application/json" }
             });
         }
 
-        const googleData = await googleResponse.json();
-        const landmarkAnnotation = googleData.responses?.[0]?.landmarkAnnotations?.[0];
+        const geminiData = await geminiResponse.json();
+        let parsedResult;
 
-        let responsePayload;
-
-        if (landmarkAnnotation) {
-            const description = landmarkAnnotation.description || "Unknown Landmark";
-            const score = landmarkAnnotation.score || 0;
-            const location = landmarkAnnotation.locations?.[0]?.latLng;
-
-            responsePayload = {
-                analysis: {
-                    signage: description,
-                    architecture: "Verified architectural match found in Google Cloud Landmark Index.",
-                    flora: "Environmental surroundings verified against global geospatial assets."
-                },
-                confidence_score: Math.round(score * 100),
-                estimated_location: {
-                    country: "India", // Fallback safely to 'India' as requested
-                    city: description,
-                    coordinates: {
-                        lat: location?.latitude || 0.0,
-                        lng: location?.longitude || 0.0
-                    }
-                },
-                success: true,
-                source: "LLM_Fallback"
-            };
-        } else {
-            // Graceful fallback for missing landmarks
-            responsePayload = {
-                analysis: {
-                    signage: "No major landmark matched in Google's database.",
-                    architecture: "No major landmark matched in Google's database.",
-                    flora: "No major landmark matched in Google's database."
-                },
-                confidence_score: 0,
-                estimated_location: {
-                    country: "Unknown",
-                    city: "Unknown",
-                    coordinates: {
-                        lat: 0.0,
-                        lng: 0.0
-                    }
-                },
-                success: true,
-                source: "LLM_Fallback"
-            };
+        try {
+            const contentText = geminiData.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
+            parsedResult = JSON.parse(contentText);
+        } catch (parseError) {
+            console.error("Failed to parse Gemini JSON output:", parseError, geminiData);
+            parsedResult = {};
         }
+
+        // Defensive Programming Sanitization - Fallback mapping
+        const responsePayload = {
+            success: true,
+            source: "Gemini_Vision_API",
+            estimated_location: {
+                country: parsedResult?.estimated_location?.country || "Unknown",
+                city: parsedResult?.estimated_location?.city || "Unknown",
+                coordinates: {
+                    lat: typeof parsedResult?.estimated_location?.coordinates?.lat === 'number' ? parsedResult.estimated_location.coordinates.lat : 0.0,
+                    lng: typeof parsedResult?.estimated_location?.coordinates?.lng === 'number' ? parsedResult.estimated_location.coordinates.lng : 0.0,
+                }
+            },
+            confidence_score: typeof parsedResult?.confidence_score === 'number' ? parsedResult.confidence_score : 0,
+            analysis: {
+                architecture: parsedResult?.analysis?.architecture || "No architecture data available",
+                flora: parsedResult?.analysis?.flora || "No flora data available",
+                signage: parsedResult?.analysis?.signage || "No signage data available"
+            }
+        };
 
         return new Response(JSON.stringify(responsePayload), {
             status: 200,
