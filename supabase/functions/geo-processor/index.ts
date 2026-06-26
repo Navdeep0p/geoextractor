@@ -106,13 +106,17 @@ If you cannot determine an exact location, provide your best guess for country a
         });
 
         if (!groqResponse.ok) {
-            const errorData = await groqResponse.text();
-            console.error("Groq API Error:", errorData);
-            return new Response(JSON.stringify({ error: "Failed to process image via Vision API." }), {
-                status: 502,
-                headers: { ...headers, "Content-Type": "application/json" }
-            });
-        }
+         const errorData = await groqResponse.text();
+         console.error("Groq API Error:", errorData);
+         return new Response(JSON.stringify({ 
+        success: false, 
+        error: "Failed to process image via Vision API.", 
+        details: errorData 
+        }), {
+        status: 502,
+        headers: { ...headers, "Content-Type": "application/json" }
+        });
+      }
 
         const groqData = await groqResponse.json();
 
