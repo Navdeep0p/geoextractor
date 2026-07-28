@@ -118,4 +118,4 @@ A GitHub Action workflow is configured under `.github/workflows/deploy-supabase.
 
 ## 📄 License
 
-This project is licensed under the **MIT License**. See the [LICENSE](LICENSE) file for details.
+This project is licensed under the **MIT License**. See the [LICENSE](LICENSE.md) file for details.
