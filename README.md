@@ -115,3 +115,7 @@ supabase functions serve geo-processor
                                                         
 
 A GitHub Action workflow is configured under `.github/workflows/deploy-supabase.yml` to automatically deploy the `geo-processor` function upon commits to the main branch. Ensure the required Supabase credentials (`SUPABASE_ACCESS_TOKEN`, `SUPABASE_PROJECT_ID`) are configured in your repository secrets.
+
+## 📄 License
+
+This project is licensed under the **MIT License**. See the [LICENSE](LICENSE) file for details.
