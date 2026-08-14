@@ -7,8 +7,7 @@ const headers = {
     "Access-Control-Allow-Headers": "Content-Type, Authorization, x-client-info, apikey",
 };
 
-
-async function fetchWithRetry(url: string, options: RequestInit, retries = 3, delay = 1500) {
+async function fetchWithRetry(url: string, options: RequestInit, retries = 2, delay = 600) {
   for (let i = 0; i < retries; i++) {
     const response = await fetch(url, options);
     if ((response.status !== 503 && response.status !== 429) || i === retries - 1) {
@@ -89,10 +88,11 @@ Return your final answer strictly in valid JSON matching this schema:
     "coordinates": { "lat": 0.0, "lng": 0.0 }
   },
   "success": true,
-  "source": "Gemini_3.1_Pro"
+  "source": "Gemini_Flash"
 }`;
 
-        const geminiResponse = await fetchWithRetry(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-pro:generateContent?key=${geminiApiKey}`, {
+        // Primary Model Call (gemini-2.5-flash)
+        let geminiResponse = await fetchWithRetry(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiApiKey}`, {
             method: "POST",
             headers: {
                 "Content-Type": "application/json"
@@ -110,10 +110,32 @@ Return your final answer strictly in valid JSON matching this schema:
             })
         });
 
+        // Failover fallback if primary cluster returns 503/429
+        if (!geminiResponse || !geminiResponse.ok) {
+            console.warn("Primary model cluster busy, falling back to gemini-1.5-flash...");
+            geminiResponse = await fetchWithRetry(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiApiKey}`, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({
+                    contents: [{
+                        parts: [
+                            { text: systemPrompt },
+                            { inlineData: { mimeType: mimeType, data: base64Image } }
+                        ]
+                    }],
+                    generationConfig: {
+                        responseMimeType: "application/json"
+                    }
+                })
+            }, 1, 300);
+        }
+
         if (!geminiResponse || !geminiResponse.ok) {
             const errorData = geminiResponse ? await geminiResponse.text() : "No response after retries";
             console.error("Gemini API Error:", errorData);
-            return new Response(JSON.stringify({ error: "Failed to process image via Gemini API." }), {
+            return new Response(JSON.stringify({ error: "Gemini service is temporarily busy. Please retry shortly.", details: errorData }), {
                 status: 502,
                 headers: { ...headers, "Content-Type": "application/json" }
             });
@@ -133,7 +155,7 @@ Return your final answer strictly in valid JSON matching this schema:
         // Defensive Programming Sanitization - Fallback mapping
         const responsePayload = {
             success: true,
-            source: "Gemini_3.1_Pro",
+            source: "Gemini_Flash",
             landmark_name: parsedResult?.landmark_name || "Unidentified Landmark",
             deduction_reasoning: parsedResult?.deduction_reasoning || "Visual analysis complete.",
             estimated_location: {
