@@ -11,11 +11,12 @@ const headers = {
 async function fetchWithRetry(url: string, options: RequestInit, retries = 3, delay = 1500) {
   for (let i = 0; i < retries; i++) {
     const response = await fetch(url, options);
-    if (response.status !== 503 || i === retries - 1) {
+    if ((response.status !== 503 && response.status !== 429) || i === retries - 1) {
       return response;
     }
-    console.warn(`Gemini busy (503). Retrying attempt ${i + 1} of ${retries}...`);
-    await new Promise(res => setTimeout(res, delay));
+    console.warn(`Gemini API busy or throttled (${response.status}). Retrying in ${delay}ms (Attempt ${i + 1}/${retries})...`);
+    await new Promise((res) => setTimeout(res, delay));
+    delay *= 1.5;
   }
 }
 
@@ -64,17 +65,27 @@ Deno.serve(async (req) => {
             base64Image = base64Image.replace(prefixMatch[0], "");
         }
 
-        const systemPrompt = `You are an elite OSINT geographical location grounder. Analyze this image. If it features a prominent landmark, bridge, or building, use surrounding elements (like vegetation, landscape style, water type) to isolate its true town/city. Return your final answer strictly in valid JSON matching this schema configuration layout:
+        const systemPrompt = `You are an elite OSINT geographical location grounder.
+
+Carefully analyze this image using structured elimination:
+1. VISUAL ANCHORS: Identify distinguishing architectural elements (e.g., specific fort bastions, watchtowers, gables, balustrades), signage/script (e.g., Telugu, Hindi, Tamil, Latin), masonry type, and topography.
+2. CANDIDATE MATCHING: Actively match these features against known real-world historical monuments, forts, campuses, or structures. Discard generic regional hubs if the specific architectural signature belongs to a known landmark.
+3. GROUNDING: State the verified landmark name and visual proof first, then assign the precise city, state, and coordinates.
+
+Return your final answer strictly in valid JSON matching this schema:
 {
+  "landmark_name": "Exact name of the building/monument (or 'Unidentified Landmark' if unknown)",
+  "deduction_reasoning": "Brief explanation of the unique visual features that confirm this specific location",
   "analysis": {
-    "architecture": "Engineering style notes",
+    "architecture": "Detailed structural notes",
     "flora": "Vegetation notes",
-    "signage": "Text or billboard readings extracted"
+    "signage": "Text, script, or billboard readings extracted"
   },
   "confidence_score": 90,
   "estimated_location": {
     "country": "Country name",
-    "city": "Specific City or neighborhood zone",
+    "state_or_region": "State / Province",
+    "city": "Specific City or Town",
     "coordinates": { "lat": 0.0, "lng": 0.0 }
   },
   "success": true,
@@ -123,8 +134,11 @@ Deno.serve(async (req) => {
         const responsePayload = {
             success: true,
             source: "Gemini_3.1_Pro",
+            landmark_name: parsedResult?.landmark_name || "Unidentified Landmark",
+            deduction_reasoning: parsedResult?.deduction_reasoning || "Visual analysis complete.",
             estimated_location: {
                 country: parsedResult?.estimated_location?.country || "Unknown",
+                state_or_region: parsedResult?.estimated_location?.state_or_region || "Unknown",
                 city: parsedResult?.estimated_location?.city || "Unknown",
                 coordinates: {
                     lat: typeof parsedResult?.estimated_location?.coordinates?.lat === 'number' ? parsedResult.estimated_location.coordinates.lat : 0.0,
