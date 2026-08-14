@@ -1,6 +1,3 @@
-// Supabase Edge Function to process EXIF metadata and interact with Google AI Studio Gemini API
-// Adheres to Deno (TypeScript) runtime environment.
-
 const headers = {
     "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Methods": "POST, OPTIONS",
@@ -13,19 +10,15 @@ async function fetchWithRetry(url: string, options: RequestInit, retries = 2, de
     if ((response.status !== 503 && response.status !== 429) || i === retries - 1) {
       return response;
     }
-    console.warn(`Gemini API busy or throttled (${response.status}). Retrying in ${delay}ms (Attempt ${i + 1}/${retries})...`);
+    console.warn(`Gemini API busy or throttled (${response.status}). Retrying in ${delay}ms...`);
     await new Promise((res) => setTimeout(res, delay));
     delay *= 1.5;
   }
 }
 
 Deno.serve(async (req) => {
-    // Handle CORS preflight request
     if (req.method === "OPTIONS") {
-        return new Response(null, {
-            status: 204,
-            headers,
-        });
+        return new Response(null, { status: 204, headers });
     }
 
     if (req.method !== "POST") {
@@ -38,65 +31,64 @@ Deno.serve(async (req) => {
     try {
         const geminiApiKey = Deno.env.get("GEMINI_API_KEY");
         if (!geminiApiKey) {
-            return new Response(JSON.stringify({ error: "Server Configuration Error: Missing GEMINI_API_KEY" }), {
+            return new Response(JSON.stringify({ error: "Missing GEMINI_API_KEY" }), {
                 status: 500,
                 headers: { ...headers, "Content-Type": "application/json" },
             });
         }
 
         const body = await req.json();
-
-        // Validate that 'image' field exists and is a non-empty string
         if (!body || typeof body.image !== "string" || body.image.trim() === "") {
-            return new Response(JSON.stringify({ error: "Missing or invalid 'image' field in payload. Expected a Base64 string." }), {
+            return new Response(JSON.stringify({ error: "Missing or invalid 'image' Base64 string." }), {
                 status: 400,
                 headers: { ...headers, "Content-Type": "application/json" },
             });
         }
 
         let base64Image = body.image.trim();
-        let mimeType = "image/jpeg"; // Default fallback
+        let mimeType = "image/jpeg";
 
-        // Remove data URI prefix if it exists and extract mime type dynamically
         const prefixMatch = base64Image.match(/^data:(image\/[a-zA-Z+]+);base64,/);
         if (prefixMatch) {
             mimeType = prefixMatch[1];
             base64Image = base64Image.replace(prefixMatch[0], "");
         }
 
-        const systemPrompt = `You are an elite OSINT geographical location grounder.
+        const systemPrompt = `You are a forensic OSINT geo-location investigator.
 
-Carefully analyze this image using structured elimination:
-1. VISUAL ANCHORS: Identify distinguishing architectural elements (e.g., specific fort bastions, watchtowers, gables, balustrades), signage/script (e.g., Telugu, Hindi, Tamil, Latin), masonry type, and topography.
-2. CANDIDATE MATCHING: Actively match these features against known real-world historical monuments, forts, campuses, or structures. Discard generic regional hubs if the specific architectural signature belongs to a known landmark.
-3. GROUNDING: State the verified landmark name and visual proof first, then assign the precise city, state, and coordinates.
+### ANALYSIS INSTRUCTIONS:
+1. IDENTIFY THE UNIQUE VISUAL ANOMALY:
+   - Identify what makes this specific structure unique from generic architecture (e.g., a yellow cylindrical observation tower rising directly from a massive circular stone fort bastion).
+2. BEWARE OF CAPITAL / HUB BIAS (CRITICAL):
+   - Do NOT default to major hub cities (e.g., Hyderabad, Warangal, Delhi, Jaipur) unless the structure is unambiguously located there.
+   - Distinct regional forts belong to their specific towns/districts (e.g., Kurnool, Chandragiri, Bhongir, Gooty).
+3. DEDUCE AND GROUND:
+   - Identify the exact landmark name first before assigning the city and coordinates.
 
-Return your final answer strictly in valid JSON matching this schema:
+Return your response strictly in valid JSON:
 {
-  "landmark_name": "Exact name of the building/monument (or 'Unidentified Landmark' if unknown)",
-  "deduction_reasoning": "Brief explanation of the unique visual features that confirm this specific location",
+  "landmark_name": "Exact name of the building/monument",
+  "deduction_reasoning": "Unique visual features confirming this exact location",
   "analysis": {
-    "architecture": "Detailed structural notes",
+    "architecture": "Masonry and architectural details",
     "flora": "Vegetation notes",
-    "signage": "Text, script, or billboard readings extracted"
+    "signage": "Extracted text or script"
   },
-  "confidence_score": 90,
+  "confidence_score": 95,
   "estimated_location": {
-    "country": "Country name",
+    "country": "Country",
     "state_or_region": "State / Province",
-    "city": "Specific City or Town",
+    "city": "Specific City or District",
     "coordinates": { "lat": 0.0, "lng": 0.0 }
   },
   "success": true,
   "source": "Gemini_Flash"
 }`;
 
-        // Primary Model Call (gemini-2.5-flash)
+        // 1. Primary Model Attempt
         let geminiResponse = await fetchWithRetry(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiApiKey}`, {
             method: "POST",
-            headers: {
-                "Content-Type": "application/json"
-            },
+            headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
                 contents: [{
                     parts: [
@@ -110,14 +102,12 @@ Return your final answer strictly in valid JSON matching this schema:
             })
         });
 
-        // Failover fallback if primary cluster returns 503/429
+        // 2. Dynamic Failover Attempt (if primary is degraded/overloaded)
         if (!geminiResponse || !geminiResponse.ok) {
-            console.warn("Primary model cluster busy, falling back to gemini-1.5-flash...");
+            console.warn("Primary model cluster busy, trying fallback to gemini-1.5-flash...");
             geminiResponse = await fetchWithRetry(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiApiKey}`, {
                 method: "POST",
-                headers: {
-                    "Content-Type": "application/json"
-                },
+                headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
                     contents: [{
                         parts: [
@@ -134,8 +124,7 @@ Return your final answer strictly in valid JSON matching this schema:
 
         if (!geminiResponse || !geminiResponse.ok) {
             const errorData = geminiResponse ? await geminiResponse.text() : "No response after retries";
-            console.error("Gemini API Error:", errorData);
-            return new Response(JSON.stringify({ error: "Gemini service is temporarily busy. Please retry shortly.", details: errorData }), {
+            return new Response(JSON.stringify({ error: "Service busy. Please try again shortly.", details: errorData }), {
                 status: 502,
                 headers: { ...headers, "Content-Type": "application/json" }
             });
@@ -148,11 +137,10 @@ Return your final answer strictly in valid JSON matching this schema:
             const contentText = geminiData.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
             parsedResult = JSON.parse(contentText);
         } catch (parseError) {
-            console.error("Failed to parse Gemini JSON output:", parseError, geminiData);
+            console.error("JSON Parse Error:", parseError);
             parsedResult = {};
         }
 
-        // Defensive Programming Sanitization - Fallback mapping
         const responsePayload = {
             success: true,
             source: "Gemini_Flash",
@@ -181,8 +169,7 @@ Return your final answer strictly in valid JSON matching this schema:
         });
 
     } catch (error) {
-        console.error("Internal Server Error:", error);
-        return new Response(JSON.stringify({ error: "Invalid request payload or internal server error." }), {
+        return new Response(JSON.stringify({ error: "Internal Server Error" }), {
             status: 400,
             headers: { ...headers, "Content-Type": "application/json" },
         });
