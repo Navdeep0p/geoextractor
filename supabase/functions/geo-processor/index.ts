@@ -78,10 +78,10 @@ Deno.serve(async (req) => {
     "coordinates": { "lat": 0.0, "lng": 0.0 }
   },
   "success": true,
-  "source": "Gemini_Vision_API"
+  "source": "Gemini_3.1_Pro"
 }`;
 
-        const geminiResponse = await fetchWithRetry(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiApiKey}`, {
+        const geminiResponse = await fetchWithRetry(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-pro:generateContent?key=${geminiApiKey}`, {
             method: "POST",
             headers: {
                 "Content-Type": "application/json"
@@ -122,7 +122,7 @@ Deno.serve(async (req) => {
         // Defensive Programming Sanitization - Fallback mapping
         const responsePayload = {
             success: true,
-            source: "Gemini_Vision_API",
+            source: "Gemini_3.1_Pro",
             estimated_location: {
                 country: parsedResult?.estimated_location?.country || "Unknown",
                 city: parsedResult?.estimated_location?.city || "Unknown",
